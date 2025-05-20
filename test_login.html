@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login Page Tests</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        #testResults {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #eee;
+            background-color: #f9f9f9;
+        }
+        .test-result {
+            margin-bottom: 8px;
+            font-family: monospace;
+        }
+        .pass { color: green; }
+        .fail { color: red; }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <form id="loginForm">
+            <h2>Login Test</h2>
+            <div class="input-group">
+                <label for="username">Username or Email</label>
+                <input type="text" id="username" name="username" required>
+            </div>
+            <div class="input-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            <button type="submit" id="loginButton">Login</button>
+            <p id="errorMessage" class="error-message"></p>
+        </form>
+    </div>
+
+    <div id="testResults">
+        <h3>Test Results:</h3>
+    </div>
+
+    <script src="script.js"></script>
+    <script>
+        // Store original fetch
+        const originalFetch = window.fetch;
+        let lastFetchArgs = null;
+
+        function recordFetch(url, options) {
+            lastFetchArgs = { url, options };
+            // For tests expecting success, we don't want to redirect,
+            // but we need to simulate a successful response structure.
+            if (options && options.body) {
+                const body = JSON.parse(options.body);
+                if (body.username && body.password && body.username !== '' && body.password !== '') {
+                     // Simulate a successful login response structure
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: () => Promise.resolve({ success: true, message: 'Mocked successful login' })
+                    });
+                }
+            }
+            // Simulate a failed login response for other cases
+            return Promise.resolve({
+                ok: false,
+                status: 401,
+                json: () => Promise.resolve({ success: false, message: 'Mocked invalid credentials' })
+            });
+        }
+
+
+        const testResultsDiv = document.getElementById('testResults');
+        const loginButton = document.getElementById('loginButton'); // Get button by ID
+        const usernameInputTest = document.getElementById('username');
+        const passwordInputTest = document.getElementById('password');
+        const errorMessageElementTest = document.getElementById('errorMessage');
+
+        function printTestResult(testCaseName, passed) {
+            const resultP = document.createElement('p');
+            resultP.classList.add('test-result');
+            resultP.textContent = `${testCaseName}: `;
+            const statusSpan = document.createElement('span');
+            statusSpan.textContent = passed ? 'PASS' : 'FAIL';
+            statusSpan.classList.add(passed ? 'pass' : 'fail');
+            resultP.appendChild(statusSpan);
+            testResultsDiv.appendChild(resultP);
+        }
+
+        async function runTest(testCaseName, testFunction) {
+            // Reset fields and error messages before each test
+            usernameInputTest.value = '';
+            passwordInputTest.value = '';
+            errorMessageElementTest.textContent = '';
+            errorMessageElementTest.classList.remove('show');
+            lastFetchArgs = null; // Reset fetch recorder
+
+            try {
+                await testFunction();
+            } catch (e) {
+                console.error(`Error in ${testCaseName}:`, e);
+                printTestResult(testCaseName, false);
+            }
+        }
+
+        // Test Case 1: Empty fields
+        runTest('Test Case 1: Empty fields', () => {
+            loginButton.click();
+            const msg = errorMessageElementTest.textContent;
+            const Pvisible = errorMessageElementTest.classList.contains('show');
+            printTestResult('Test Case 1: Empty fields (Username)', msg.includes('Username or Email is required.') && Pvisible);
+        });
+
+        // Test Case 2: Only username provided
+        runTest('Test Case 2: Only username provided', () => {
+            usernameInputTest.value = 'testuser';
+            loginButton.click();
+            const msg = errorMessageElementTest.textContent;
+            const Pvisible = errorMessageElementTest.classList.contains('show');
+            printTestResult('Test Case 2: Only username provided', msg.includes('Password is required.') && Pvisible);
+        });
+
+        // Test Case 3: Only password provided
+        runTest('Test Case 3: Only password provided', () => {
+            passwordInputTest.value = 'testpass';
+            loginButton.click();
+            const msg = errorMessageElementTest.textContent;
+            const Pvisible = errorMessageElementTest.classList.contains('show');
+            printTestResult('Test Case 3: Only password provided', msg.includes('Username or Email is required.') && Pvisible);
+        });
+
+        // Test Case 4: Attempted Login (mocking fetch)
+        runTest('Test Case 4: Attempted Login (mocked success)', async () => {
+            window.fetch = recordFetch; // Override fetch
+            usernameInputTest.value = 'admin';
+            passwordInputTest.value = 'password';
+            loginButton.click();
+
+            // Allow microtasks (like promise resolutions) to complete
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            const errorMsgVisible = errorMessageElementTest.classList.contains('show');
+            const fetchCalledCorrectly = lastFetchArgs && lastFetchArgs.url === 'http://localhost:3000/login';
+            // For this test, we are primarily checking that no client-side validation error is shown
+            // and that our mocked fetch (simulating success path) was invoked.
+            // The actual redirection is prevented by the mock.
+            printTestResult('Test Case 4: Attempted Login (mocked success)', !errorMsgVisible && fetchCalledCorrectly);
+            window.fetch = originalFetch; // Restore original fetch
+        });
+
+        // Test Case 5: Attempted Login with invalid credentials (mocking fetch failure)
+        runTest('Test Case 5: Attempted Login (mocked failure)', async () => {
+            window.fetch = recordFetch; // Override fetch
+            usernameInputTest.value = 'wronguser';
+            passwordInputTest.value = 'wrongpass';
+            loginButton.click();
+
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            const errorMsgVisible = errorMessageElementTest.classList.contains('show');
+            const errorMsgContent = errorMessageElementTest.textContent;
+            const fetchCalledCorrectly = lastFetchArgs && lastFetchArgs.url === 'http://localhost:3000/login';
+
+            printTestResult('Test Case 5: Attempted Login (mocked failure)', errorMsgVisible && errorMsgContent.includes('Mocked invalid credentials') && fetchCalledCorrectly);
+            window.fetch = originalFetch; // Restore original fetch
+        });
+
+
+    </script>
+</body>
+</html>
